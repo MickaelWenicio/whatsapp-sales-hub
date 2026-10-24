@@ -1,0 +1,27 @@
+# === Segredos e PII - NUNCA versionar ===
+*.local.md
+*.local.json
+.env
+.env.*
+!.env.example
+!apps/painel/.env.local.example
+apps/painel/.env.local
+*.pem
+*.key
+
+# === Ferramentas locais ===
+.superpowers/
+.worktrees/
+
+# === Node / build ===
+node_modules/
+dist/
+build/
+.next/
+coverage/
+*.log
+*.tsbuildinfo
+apps/painel/next-env.d.ts
+
+# Midia de runtime (uploads/documentos) - nunca versionar
+/apps/api/storage/
