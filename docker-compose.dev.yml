@@ -1,0 +1,115 @@
+name: sales-hub-dev
+
+# Uso:
+#   docker compose -f docker-compose.dev.yml up -d            → Postgres + Redis (infra)
+#   docker compose -f docker-compose.dev.yml --profile evolution up -d   → + Evolution
+#
+# Em dev o normal é rodar a app no host (pnpm dev) contra Postgres/Redis daqui.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: saleshub
+      POSTGRES_PASSWORD: saleshub
+      POSTGRES_DB: saleshub
+    ports:
+      # host 5432 costuma estar ocupado por um Postgres local; publicamos em 5436
+      - '5436:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U saleshub -d saleshub']
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  # --- Canal WhatsApp (Evolution) — profile "evolution" ----------------------
+  # `pnpm dev:evolution` sobe: cria o banco `evolution`, sobe o Evolution e provisiona
+  # a instância + webhook apontando para a API RODANDO NO HOST (host.docker.internal).
+  # Pareie o QR no Manager (http://localhost:8080/manager). Valores vêm do .env da raiz.
+
+  # cria o banco `evolution` no Postgres (idempotente; roda e sai)
+  evolution-db-init:
+    image: postgres:16
+    profiles: ['evolution']
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: saleshub
+    command:
+      - sh
+      - -c
+      - >
+        psql -h postgres -U saleshub -d saleshub -tc "SELECT 1 FROM pg_database WHERE datname='evolution'"
+        | grep -q 1 || psql -h postgres -U saleshub -d saleshub -c "CREATE DATABASE evolution"
+
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.7
+    profiles: ['evolution']
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      evolution-db-init:
+        condition: service_completed_successfully
+    environment:
+      SERVER_URL: http://localhost:8080
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-troque-em-dev}
+      # v2.3.7 busca sozinho a versão atual do WhatsApp Web — NÃO fixar (fixar quebra o pareamento).
+      DATABASE_ENABLED: 'true'
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://saleshub:saleshub@postgres:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_saleshub
+      CACHE_REDIS_ENABLED: 'true'
+      CACHE_REDIS_URI: redis://redis:6379/1
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_LOCAL_ENABLED: 'false'
+    # permite ao Evolution (Docker) alcançar a API rodando no host (webhook)
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    ports:
+      - '8080:8080'
+    volumes:
+      - evolution_instances:/evolution/instances
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://localhost:8080/ || exit 1']
+      interval: 5s
+      timeout: 4s
+      retries: 30
+
+  # cria a instância e aponta o webhook para a API NO HOST (idempotente; roda e sai)
+  evolution-provision:
+    image: curlimages/curl:8.11.1
+    profiles: ['evolution']
+    restart: 'no'
+    depends_on:
+      evolution:
+        condition: service_healthy
+    environment:
+      EVOLUTION_API_URL: http://evolution:8080
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-troque-em-dev}
+      EVOLUTION_INSTANCE: ${EVOLUTION_INSTANCE:-sales-hub}
+      EVOLUTION_WEBHOOK_TOKEN: ${EVOLUTION_WEBHOOK_TOKEN:-dev-webhook-token}
+      WEBHOOK_TARGET: http://host.docker.internal:3311/webhook/evolution
+    volumes:
+      - ./scripts/evolution-provision.sh:/provision.sh:ro
+    entrypoint: ['sh', '/provision.sh']
+
+volumes:
+  pgdata:
+  evolution_instances:
