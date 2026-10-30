@@ -1,0 +1,523 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PapelUsuario {
+  dono
+  gestor
+  atendente
+}
+
+enum EstadoConversa {
+  IA_ATIVA
+  HUMANO
+  IA_PAUSADA
+  AGUARDANDO_ESPECIALISTA
+  ENCERRADA
+}
+
+enum Prioridade {
+  normal
+  alta
+  emergencia
+}
+
+enum AutorMensagem {
+  cliente
+  ia
+  atendente
+  sistema
+}
+
+enum TipoMensagem {
+  texto
+  imagem
+  documento
+  audio
+  video
+  figurinha
+  nota_interna
+  evento
+}
+
+enum StatusMensagem {
+  pendente
+  enviando
+  enviada
+  entregue
+  lida
+  falhou
+  cancelada
+}
+
+enum Etapa {
+  novo_lead
+  em_atendimento
+  qualificacao_concluida
+  aguardando_cotacao
+  proposta_enviada
+  em_negociacao
+  contratacao_em_andamento
+  venda_confirmada
+  perdido
+}
+
+enum Preocupacao {
+  preco
+  qualidade
+  prazo
+  suporte
+  outra
+}
+
+enum TipoObjecao {
+  preco
+  confianca
+  necessidade
+  momento
+  concorrente
+  outro
+}
+
+enum OrigemContato {
+  whatsapp_organico
+  site
+  campanha
+  indicacao
+  importacao
+}
+
+enum StatusCliente {
+  lead
+  cliente_ativo
+  ex_cliente
+}
+
+enum StatusConsentimento {
+  concedido
+  revogado
+}
+
+enum TipoTarefa {
+  cotacao
+  retorno
+  encaminhar_contratacao
+  pos_venda
+  entrega
+  outro
+}
+
+enum StatusTarefa {
+  aberta
+  concluida
+  cancelada
+}
+
+enum StatusAcaoAgente {
+  aplicada
+  sugerida
+  pendente_aprovacao
+  recusada
+  descartada
+}
+
+enum TipoAtor {
+  ia
+  humano
+  sistema
+}
+
+enum EstadoNumero {
+  conectado
+  reconectando
+  desconectado
+}
+
+enum OrigemDemo {
+  seed
+  ao_vivo
+}
+
+model User {
+  id        String       @id @default(cuid())
+  nome      String
+  email     String       @unique
+  papel     PapelUsuario
+  senhaHash String
+  ativo     Boolean      @default(true)
+  createdAt DateTime     @default(now())
+
+  conversasResponsavel     Conversation[]
+  oportunidadesResponsavel Opportunity[]
+  tarefasResponsavel       Task[]
+  mensagens                Message[]
+  eventosOportunidade      OpportunityEvent[]
+
+  @@map("users")
+}
+
+model Sector {
+  id   String @id @default(cuid())
+  nome String @unique
+
+  conversas Conversation[]
+  tarefas   Task[]
+
+  @@map("sectors")
+}
+
+model WhatsAppNumber {
+  id                 String       @id @default(cuid())
+  rotulo             String
+  e164               String       @unique
+  instanciaEvolution String       @unique
+  estado             EstadoNumero @default(desconectado)
+  ultimoEstadoEm     DateTime?
+  ultimaFalha        String?
+  ficticio           Boolean      @default(false)
+
+  conversas Conversation[]
+  mensagens Message[]
+  eventos   InboundEvent[]
+
+  @@map("whatsapp_numbers")
+}
+
+model InboundEvent {
+  id          String    @id @default(cuid())
+  idMensagem  String    @unique
+  numeroId    String
+  resumo      Json
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  numero WhatsAppNumber @relation(fields: [numeroId], references: [id], onDelete: Restrict)
+
+  @@index([numeroId])
+  @@map("inbound_events")
+}
+
+model Contact {
+  id            String        @id @default(cuid())
+  nome          String?
+  e164          String        @unique
+  cidade        String?
+  uf            String?
+  origem        OrigemContato @default(whatsapp_organico)
+  statusCliente StatusCliente @default(lead)
+  camposIa      Json          @default("{}")
+  origemDemo    OrigemDemo?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  consentimento Consent?
+  itens         InterestItem[]
+  conversas     Conversation[]
+  oportunidades Opportunity[]
+
+  @@index([nome(ops: raw("gin_trgm_ops"))], type: Gin, map: "contacts_nome_trgm_idx")
+  @@index([e164(ops: raw("gin_trgm_ops"))], type: Gin, map: "contacts_e164_trgm_idx")
+  @@map("contacts")
+}
+
+model Consent {
+  id               String              @id @default(cuid())
+  contactId        String              @unique
+  status           StatusConsentimento
+  mensagemOrigemId String?
+  em               DateTime
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@map("consents")
+}
+
+/// O que o contato quer comprar ou contratar (um produto, um serviço, um projeto).
+model InterestItem {
+  id         String   @id @default(cuid())
+  contactId  String
+  categoria  String?
+  descricao  String?
+  quantidade Int?
+  camposIa   Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  contact       Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  oportunidades Opportunity[]
+
+  @@index([contactId])
+  @@map("interest_items")
+}
+
+model Conversation {
+  id                      String         @id @default(cuid())
+  contactId               String
+  numeroId                String
+  estado                  EstadoConversa @default(IA_ATIVA)
+  prioridade              Prioridade     @default(normal)
+  responsavelId           String?
+  setorId                 String?
+  versaoControle          Int            @default(0)
+  naoLidas                Int            @default(0)
+  ultimaMensagemEm        DateTime?
+  ultimaMensagemClienteEm DateTime?
+  janelaAteEm             DateTime?
+  iaFalhouEm              DateTime?
+  origemDemo              OrigemDemo?
+  createdAt               DateTime       @default(now())
+
+  contact     Contact              @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  numero      WhatsAppNumber       @relation(fields: [numeroId], references: [id], onDelete: Restrict)
+  responsavel User?                @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
+  setor       Sector?              @relation(fields: [setorId], references: [id], onDelete: SetNull)
+  resumo      ConversationSummary?
+  mensagens   Message[]
+  turnos      AgentTurn[]
+  acoes       AgentAction[]
+  tarefas     Task[]
+
+  @@unique([contactId, numeroId])
+  @@index([estado, prioridade, ultimaMensagemEm])
+  @@map("conversations")
+}
+
+model ConversationSummary {
+  id               String   @id @default(cuid())
+  conversationId   String   @unique
+  querOQue         String
+  jaInformou       String[]
+  objecao          String?
+  proximoPasso     String
+  ultimaMensagemId String
+  atualizadoEm     DateTime
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("conversation_summaries")
+}
+
+model Message {
+  id                 String          @id @default(cuid())
+  conversationId     String
+  numeroId           String
+  autor              AutorMensagem
+  tipo               TipoMensagem    @default(texto)
+  texto              String?
+  status             StatusMensagem?
+  idExterno          String?
+  motivoFalha        String?
+  autorUsuarioId     String?
+  agentTurnId        String?
+  versaoControle     Int?
+  confirmadoRestrito Boolean         @default(false)
+  citadaId           String?
+  criadaEm           DateTime        @default(now())
+
+  conversation Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  numero       WhatsAppNumber @relation(fields: [numeroId], references: [id], onDelete: Restrict)
+  autorUsuario User?          @relation(fields: [autorUsuarioId], references: [id], onDelete: SetNull)
+  agentTurn    AgentTurn?     @relation(fields: [agentTurnId], references: [id], onDelete: SetNull)
+
+  @@unique([numeroId, idExterno])
+  @@index([conversationId, criadaEm])
+  @@index([texto(ops: raw("gin_trgm_ops"))], type: Gin, map: "messages_texto_trgm_idx")
+  @@map("messages")
+}
+
+model AgentTurn {
+  id             String    @id @default(cuid())
+  conversationId String
+  iniciadoEm     DateTime
+  finalizadoEm   DateTime?
+  modelo         String
+  versaoControle Int
+  resultado      String? // ok|ignorado|abortado|falha|recusa
+  erro           String?
+  usage          Json?
+
+  conversation Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  acoes        AgentAction[]
+  mensagens    Message[]
+
+  @@index([conversationId])
+  @@map("agent_turns")
+}
+
+model AgentAction {
+  id               String           @id @default(cuid())
+  agentTurnId      String
+  conversationId   String
+  ferramenta       String
+  entrada          Json
+  resultado        Json?
+  justificativa    String?
+  mensagemOrigemId String?
+  status           StatusAcaoAgente
+  criadoEm         DateTime         @default(now())
+
+  agentTurn    AgentTurn    @relation(fields: [agentTurnId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([agentTurnId])
+  @@index([conversationId])
+  @@map("agent_actions")
+}
+
+model Opportunity {
+  id                     String       @id @default(cuid())
+  contactId              String
+  itemId                 String?
+  /// Slug do produto do catálogo (Product.slug) que interessa ao contato.
+  produto                String?
+  etapa                  Etapa        @default(novo_lead)
+  etapaDesde             DateTime     @default(now())
+  responsavelId          String?
+  solucaoAtual           String?
+  momentoCompra          String?
+  preocupacao            Preocupacao?
+  prazoDecisao           String?
+  motivoPerda            String?
+  proximaAcao            String?
+  proximaAcaoEm          DateTime?
+  ultimoContatoClienteEm DateTime?
+  prioridade             Prioridade   @default(normal)
+  camposIa               Json         @default("{}")
+  origemDemo             OrigemDemo?
+  criadaEm               DateTime     @default(now())
+  fechadaEm              DateTime?
+
+  contact     Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  item        InterestItem?      @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  responsavel User?              @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
+  eventos     OpportunityEvent[]
+  objecoes    Objection[]
+  tarefas     Task[]
+
+  @@index([etapa, responsavelId])
+  @@index([contactId])
+  @@map("opportunities")
+}
+
+model OpportunityEvent {
+  id               String   @id @default(cuid())
+  opportunityId    String
+  de               Etapa?
+  para             Etapa
+  ator             TipoAtor
+  atorUsuarioId    String?
+  justificativa    String?
+  mensagemOrigemId String?
+  evidencia        Json?
+  criadoEm         DateTime @default(now())
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  atorUsuario User?       @relation(fields: [atorUsuarioId], references: [id], onDelete: SetNull)
+
+  @@index([opportunityId])
+  @@map("opportunity_events")
+}
+
+model Objection {
+  id               String      @id @default(cuid())
+  opportunityId    String
+  tipo             TipoObjecao
+  descricao        String
+  mensagemOrigemId String?
+  criadaEm         DateTime    @default(now())
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId])
+  @@map("objections")
+}
+
+model Task {
+  id             String       @id @default(cuid())
+  tipo           TipoTarefa
+  titulo         String
+  opportunityId  String?
+  conversationId String?
+  responsavelId  String?
+  setorId        String?
+  prazoEm        DateTime?
+  status         StatusTarefa @default(aberta)
+  checklist      Json?
+  origemDemo     OrigemDemo?
+  criadaEm       DateTime     @default(now())
+  concluidaEm    DateTime?
+
+  opportunity  Opportunity?  @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  responsavel  User?         @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
+  setor        Sector?       @relation(fields: [setorId], references: [id], onDelete: SetNull)
+
+  @@map("tasks")
+}
+
+model Product {
+  id         String   @id @default(cuid())
+  slug       String   @unique
+  nome       String
+  descricao  String
+  beneficios String[]
+  condicoes  String
+  aprovado   Boolean
+
+  precos PriceRule[]
+
+  @@map("products")
+}
+
+model PriceRule {
+  id            String  @id @default(cuid())
+  productId     String
+  categoria     String?
+  rotulo        String
+  valorCentavos Int?
+  sobCotacao    Boolean
+  aprovado      Boolean
+  demonstracao  Boolean @default(false)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("price_rules")
+}
+
+model Faq {
+  id       String  @id @default(cuid())
+  pergunta String
+  resposta String
+  aprovado Boolean
+
+  @@map("faqs")
+}
+
+model SystemSetting {
+  chave         String   @id
+  valor         Json
+  atualizadoEm  DateTime @updatedAt
+  atualizadoPor String?
+
+  @@map("system_settings")
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  seq          BigInt   @unique @default(autoincrement()) // ordem monotonica da cadeia
+  ator         String
+  acao         String
+  entidade     String?
+  entidadeId   String?
+  ip           String?
+  hashAnterior String?
+  hash         String?
+  createdAt    DateTime @default(now())
+
+  @@map("audit_log")
+}
