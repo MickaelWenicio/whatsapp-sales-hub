@@ -1,0 +1,19 @@
+{
+  "event": "messages.upsert",
+  "instance": "sales-hub",
+  "data": {
+    "key": { "remoteJid": "5500900000001@s.whatsapp.net", "fromMe": false, "id": "3EB0A1B2C3D4E5F60004" },
+    "pushName": "Cliente Teste",
+    "message": {
+      "reactionMessage": {
+        "key": { "remoteJid": "5500900000001@s.whatsapp.net", "fromMe": true, "id": "3EB0A1B2C3D4E5F60099" },
+        "text": "👍",
+        "senderTimestampMs": "1700000030000"
+      }
+    },
+    "messageType": "reactionMessage",
+    "messageTimestamp": 1700000030,
+    "source": "android"
+  },
+  "sender": "5500900000000@s.whatsapp.net"
+}

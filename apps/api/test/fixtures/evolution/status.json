@@ -1,0 +1,14 @@
+{
+  "event": "messages.update",
+  "instance": "sales-hub",
+  "data": {
+    "messageId": "cmabc0000000000000000001",
+    "keyId": "3EB0A1B2C3D4E5F60099",
+    "remoteJid": "5500900000001@s.whatsapp.net",
+    "fromMe": true,
+    "participant": null,
+    "status": "READ",
+    "instanceId": "00000000-0000-0000-0000-000000000000"
+  },
+  "sender": "5500900000000@s.whatsapp.net"
+}

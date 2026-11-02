@@ -1,0 +1,6 @@
+{
+  "event": "connection.update",
+  "instance": "sales-hub",
+  "data": { "instance": "sales-hub", "state": "open", "statusReason": 200 },
+  "sender": "5500900000000@s.whatsapp.net"
+}
